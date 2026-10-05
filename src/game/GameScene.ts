@@ -1,20 +1,24 @@
 import Phaser from 'phaser';
 
-const PLAYER_SPEED = 260;
+interface Projectile {
+  rect: Phaser.GameObjects.Rectangle;
+  speed: number;
+}
 
-/**
- * Минимальная рабочая сцена курса.
- *
- * Здесь намеренно почти нет "игры": квадрат двигается, круг можно собирать,
- * растёт счёт. Задача студента — превратить этот каркас в собственную игру.
- */
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.GameObjects.Rectangle;
-  private target!: Phaser.GameObjects.Arc;
+  // Контейнер объединяет квадрат и его щит в одно целое для вращения
+  private playerContainer!: Phaser.GameObjects.Container;
+  private playerBox!: Phaser.GameObjects.Rectangle;
+  private shield!: Phaser.GameObjects.Rectangle;
+
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasd!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
+  private wasd!: Record<'left' | 'right', Phaser.Input.Keyboard.Key>;
   private scoreText!: Phaser.GameObjects.Text;
   private score = 0;
+  private gameOver = false;
+
+  private projectiles: Projectile[] = [];
+  private spawnTimer = 0;
 
   constructor() {
     super('GameScene');
@@ -22,87 +26,259 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     const { width, height } = this.scale;
+    this.score = 0;
+    this.gameOver = false;
+    this.projectiles = [];
 
-    this.add
-      .text(width / 2, 28, 'GAME DEV STARTER', {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '28px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5, 0);
-
-    this.add
-      .text(width / 2, 68, 'Стрелки / WASD — движение. Остальное придумай сам.', {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '18px',
-        color: '#cbd5e1',
-      })
-      .setOrigin(0.5, 0);
-
-    this.player = this.add.rectangle(width / 2, height / 2, 42, 42, 0x38bdf8);
-    this.target = this.add.circle(width * 0.72, height * 0.52, 18, 0xfacc15);
-
-    this.scoreText = this.add.text(24, height - 48, 'Score: 0', {
+    // Текст счёта
+    this.scoreText = this.add.text(24, 24, 'Score: 0', {
       fontFamily: 'system-ui, sans-serif',
-      fontSize: '22px',
+      fontSize: '24px',
       color: '#ffffff',
     });
 
-    if (!this.input.keyboard) {
-      throw new Error('Keyboard input is unavailable.');
-    }
+    // 1. Создаем игрока: базовый квадрат (размер 50х50)
+    this.playerBox = this.add.rectangle(0, 0, 50, 50, 0x38bdf8);
 
+    // 2. Создаем ЩИТ на правой грани квадрата (зеленая полоска толщиной 10)
+    // x = 25 (правая граница квадрата), y = 0
+    this.shield = this.add.rectangle(25, 0, 10, 50, 0x22c55e);
+
+    // Объединяем их в контейнер прямо в центре экрана
+    this.playerContainer = this.add.container(width / 2, height / 2, [this.playerBox, this.shield]);
+
+    // Управление
+    if (!this.input.keyboard) throw new Error('No keyboard');
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = this.input.keyboard.addKeys({
-      up: Phaser.Input.Keyboard.KeyCodes.W,
-      down: Phaser.Input.Keyboard.KeyCodes.S,
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
-    }) as Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
+    }) as Record<'left' | 'right', Phaser.Input.Keyboard.Key>;
   }
 
   update(_time: number, delta: number): void {
+    if (this.gameOver) return;
+
     const seconds = delta / 1000;
-    let dx = 0;
-    let dy = 0;
 
-    if (this.cursors.left.isDown || this.wasd.left.isDown) dx -= 1;
-    if (this.cursors.right.isDown || this.wasd.right.isDown) dx += 1;
-    if (this.cursors.up.isDown || this.wasd.up.isDown) dy -= 1;
-    if (this.cursors.down.isDown || this.wasd.down.isDown) dy += 1;
-
-    if (dx !== 0 || dy !== 0) {
-      const length = Math.hypot(dx, dy);
-      this.player.x += (dx / length) * PLAYER_SPEED * seconds;
-      this.player.y += (dy / length) * PLAYER_SPEED * seconds;
+    // Вращение контейнера (квадрат + щит поворачиваются вместе)
+    const ROTATION_SPEED = 5;
+    if (this.cursors.left.isDown || this.wasd.left.isDown) {
+      this.playerContainer.rotation -= ROTATION_SPEED * seconds;
+    }
+    if (this.cursors.right.isDown || this.wasd.right.isDown) {
+      this.playerContainer.rotation += ROTATION_SPEED * seconds;
     }
 
-    this.keepPlayerOnScreen();
-    this.checkTarget();
+    // Спавн пуль
+    this.spawnTimer += delta;
+    if (this.spawnTimer > 800) {
+      this.spawnProjectile();
+      this.spawnTimer = 0;
+    }
+
+    // Обработка пуль
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i];
+      p.rect.x += p.speed * seconds;
+
+      // Дистанция от пули до центра игрока
+      const dist = Phaser.Math.Distance.Between(
+        p.rect.x, p.rect.y,
+        this.playerContainer.x, this.playerContainer.y
+      );
+
+      // Зона контакта с квадратом
+      if (dist <= 35) {
+        // Вычисляем угол, с которого прилетела пуля относительно игрока
+        const angleToBullet = Phaser.Math.Angle.Between(
+          this.playerContainer.x, this.playerContainer.y,
+          p.rect.x, p.rect.y
+        );
+
+        // Разница углов между направлением щита и пулей
+        const angleDiff = Phaser.Math.Angle.Wrap(this.playerContainer.rotation - angleToBullet);
+
+        // Если пуля попала в сектор щита (примерно ±45 градусов от направления щита)
+        if (Math.abs(angleDiff) < Math.PI / 4) {
+          // ОТБИЛИ ЩИТОМ!
+          p.rect.destroy();
+          this.projectiles.splice(i, 1);
+          this.score += 1;
+          this.scoreText.setText(`Score: ${this.score}`);
+        } else {
+          // ПОПАДАНИЕ В ГОЛОЕ ТЕЛО — СМЕРТЬ
+          this.endGame();
+          return;
+        }
+      }
+    }
   }
 
-  private keepPlayerOnScreen(): void {
-    const half = this.player.width / 2;
-    this.player.x = Phaser.Math.Clamp(this.player.x, half, this.scale.width - half);
-    this.player.y = Phaser.Math.Clamp(this.player.y, 110 + half, this.scale.height - half);
+  private spawnProjectile(): void {
+    const { width, height } = this.scale;
+    const centerY = height / 2;
+
+    const fromLeft = Math.random() > 0.5;
+    const startX = fromLeft ? -20 : width + 20;
+    
+    // Летят ровно в центр по высоте
+    const startY = centerY;
+
+    const baseSpeed = 250 + Math.min(this.score * 12, 350);
+    const speed = fromLeft ? baseSpeed : -baseSpeed;
+
+    const rect = this.add.rectangle(startX, startY, 16, 16, 0xef4444);
+    this.projectiles.push({ rect, speed });
   }
 
-  private checkTarget(): void {
-    const distance = Phaser.Math.Distance.Between(
-      this.player.x,
-      this.player.y,
-      this.target.x,
-      this.target.y,
-    );
+  private endGame(): void {
+    this.gameOver = true;
+    this.playerBox.setFillStyle(0x991b1b);
 
-    if (distance > 42) return;
+    this.add.text(this.scale.width / 2, this.scale.height / 2 + 90, 'ЩИТ ПРОБИТ!\nПРОБЕЛ — рестарт', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '22px',
+      color: '#ffffff',
+      align: 'center',
+    }).setOrigin(0.5);
 
-    this.score += 1;
-    this.scoreText.setText(`Score: ${this.score}`);
-
-    this.target.setPosition(
-      Phaser.Math.Between(60, this.scale.width - 60),
-      Phaser.Math.Between(140, this.scale.height - 80),
-    );
+    this.input.keyboard?.once('keydown-SPACE', () => {
+      this.scene.restart();
+    });
   }
 }
+
+
+
+// import Phaser from 'phaser';
+
+// interface Projectile {
+//   rect: Phaser.GameObjects.Rectangle;
+//   speed: number;
+// }
+
+// export class GameScene extends Phaser.Scene {
+//   private player!: Phaser.GameObjects.Rectangle;
+//   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+//   private wasd!: Record<'left' | 'right', Phaser.Input.Keyboard.Key>;
+//   private scoreText!: Phaser.GameObjects.Text;
+//   private score = 0;
+//   private gameOver = false;
+
+//   private projectiles: Projectile[] = [];
+//   private spawnTimer = 0;
+
+//   constructor() {
+//     super('GameScene');
+//   }
+
+//   create(): void {
+//     const { width, height } = this.scale;
+//     this.score = 0;
+//     this.gameOver = false;
+//     this.projectiles = [];
+
+//     // Текст счета
+//     this.scoreText = this.add.text(24, 24, 'Score: 0', {
+//       fontFamily: 'system-ui, sans-serif',
+//       fontSize: '24px',
+//       color: '#ffffff',
+//     });
+
+//     // Центральный квадрат игрока (в центре экрана)
+//     this.player = this.add.rectangle(width / 2, height / 2, 50, 50, 0x38bdf8);
+
+//     // Управление (A/D и стрелки)
+//     if (!this.input.keyboard) throw new Error('No keyboard');
+//     this.cursors = this.input.keyboard.createCursorKeys();
+//     this.wasd = this.input.keyboard.addKeys({
+//       left: Phaser.Input.Keyboard.KeyCodes.A,
+//       right: Phaser.Input.Keyboard.KeyCodes.D,
+//     }) as Record<'left' | 'right', Phaser.Input.Keyboard.Key>;
+//   }
+
+//   update(time: number, delta: number): void {
+//     if (this.gameOver) return;
+
+//     const seconds = delta / 1000;
+
+//     // 1. Поворот квадрата вправо/влево со скоростью
+//     const ROTATION_SPEED = 4; // Скорость вращения
+//     if (this.cursors.left.isDown || this.wasd.left.isDown) {
+//       this.player.rotation -= ROTATION_SPEED * seconds;
+//     }
+//     if (this.cursors.right.isDown || this.wasd.right.isDown) {
+//       this.player.rotation += ROTATION_SPEED * seconds;
+//     }
+
+//     // 2. Спавн проджектайлов слева и справа
+//     this.spawnTimer += delta;
+//     if (this.spawnTimer > 700) { // каждые 0.7 сек
+//       this.spawnProjectile();
+//       this.spawnTimer = 0;
+//     }
+
+//     // 3. Движение проджектайлов к центру
+//     const centerX = this.scale.width / 2;
+
+//     for (let i = this.projectiles.length - 1; i >= 0; i--) {
+//       const p = this.projectiles[i];
+//       p.rect.x += p.speed * seconds;
+
+//       // Проверка столкновения с игроком по расстоянию
+//       const dist = Phaser.Math.Distance.Between(p.rect.x, p.rect.y, this.player.x, this.player.y);
+      
+//       if (dist < 35) { // Врезался в центр!
+//         this.endGame();
+//         return;
+//       }
+
+//       // Если пролетел центр и улетел за экран — даем очко и удаляем
+//       if ((p.speed > 0 && p.rect.x > this.scale.width + 50) || 
+//           (p.speed < 0 && p.rect.x < -50)) {
+//         p.rect.destroy();
+//         this.projectiles.splice(i, 1);
+//         this.score += 1;
+//         this.scoreText.setText(`Score: ${this.score}`);
+//       }
+//     }
+//   }
+
+//   private spawnProjectile(): void {
+//     const { width, height } = this.scale;
+//     const centerY = height / 2;
+
+//     // Случайно выбираем сторону: 0 = слева, 1 = справа
+//     const fromLeft = Math.random() > 0.5;
+//     const startX = fromLeft ? -20 : width + 20;
+    
+//     // Летят с разной высотой (чуть выше/ниже центра)
+//     const startY = centerY + Phaser.Math.Between(-25, 25);
+    
+//     // Скорость (если слева — летит вправо (+), если справа — влево (-))
+//     const baseSpeed = 300 + Math.min(this.score * 10, 400); // ускоряются со счетом
+//     const speed = fromLeft ? baseSpeed : -baseSpeed;
+
+//     // Создаем квадрат-проджектаил (красный)
+//     const rect = this.add.rectangle(startX, startY, 20, 20, 0xef4444);
+
+//     this.projectiles.push({ rect, speed });
+//   }
+
+//   private endGame(): void {
+//     this.gameOver = true;
+//     this.player.setFillStyle(0xff0000); // Квадрат краснеет при смерти
+    
+//     this.add.text(this.scale.width / 2, this.scale.height / 2 + 80, 'ИГРА ОКОНЧЕНА!\nНажми ПРОБЕЛ для рестарта', {
+//       fontFamily: 'system-ui, sans-serif',
+//       fontSize: '22px',
+//       color: '#ffffff',
+//       align: 'center'
+//     }).setOrigin(0.5);
+
+//     this.input.keyboard?.once('keydown-SPACE', () => {
+//       this.scene.restart();
+//     });
+//   }
+// }
