@@ -2,13 +2,9 @@ import Phaser from 'phaser';
 
 interface Projectile {
   rect: Phaser.GameObjects.Rectangle;
-  speed: number;
+  vx: number;
+  vy: number;
 }
-interface Projectile {
-    rect: Phaser.GameObjects.Rectangle;
-    vx: number;
-    vy: number;
-  }
 export class GameScene extends Phaser.Scene {
   // Контейнер объединяет квадрат и его щит в одно целое для вращения
   private playerContainer!: Phaser.GameObjects.Container;
