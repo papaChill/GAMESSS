@@ -5,6 +5,8 @@ interface Projectile {
   vx: number;
   vy: number;
 }
+const PHASE2_SCORE = 15;
+
 export class GameScene extends Phaser.Scene {
   // Контейнер объединяет квадрат и его щит в одно целое для вращения
   private playerContainer!: Phaser.GameObjects.Container;
@@ -24,6 +26,8 @@ export class GameScene extends Phaser.Scene {
   private pauseText!: Phaser.GameObjects.Text;
   private paused = false;
   private timerText!: Phaser.GameObjects.Text;
+
+  private progressBar!: Phaser.GameObjects.Rectangle;
 
   constructor() {
     super('GameScene');
@@ -51,11 +55,16 @@ export class GameScene extends Phaser.Scene {
       fontSize: '24px',
       color: '#ffffff',
     });
-    this.timerText = this.add.text(24, 56, 'До фазы 2: 15', {
+    this.timerText = this.add.text(24, 56, `До фазы 2: ${PHASE2_SCORE}`, {
       fontFamily: 'system-ui, sans-serif',
       fontSize: '20px',
       color: '#facc15',
     });
+
+    // Фон и заполнение полоски прогресса
+    this.add.rectangle(24, 90, 200, 8, 0x334155).setOrigin(0, 0);
+    this.progressBar = this.add.rectangle(24, 90, 0, 8, 0xfacc15).setOrigin(0, 0);
+
     this.warningText = this.add
     .text(width / 2, height / 2 - 150, '⚠ ФАЗА 2 ⚠\nСнаряды сверху и снизу!', {
       fontFamily: 'system-ui, sans-serif',
@@ -120,14 +129,23 @@ export class GameScene extends Phaser.Scene {
       if (this.timerText.text !== label) this.timerText.setText(label);
     }
 
-    if (this.phase === 1 && this.elapsed >= 15000) {
+    // Прогресс до фазы 2 (по счёту)
+    if (this.phase === 1) {
+      const left = Math.max(0, PHASE2_SCORE - this.score);
+      const label = `До фазы 2: ${left}`;
+      if (this.timerText.text !== label) this.timerText.setText(label);
+      this.progressBar.width = 200 * Math.min(1, this.score / PHASE2_SCORE);
+    }
+
+    if (this.phase === 1 && this.score >= PHASE2_SCORE) {
       this.phase = 2;
       this.warningTimer = 1500;
       this.warningText.setVisible(true);
       this.timerText.setText('ФАЗА 2').setColor('#ef4444');
-      this.cameras.main.shake(400, 0.006); // длительность мс, сила
+      this.progressBar.width = 200;
+      this.progressBar.setFillStyle(0xef4444);
+      this.cameras.main.shake(400, 0.006);
     }
-
     if (this.warningTimer > 0) {
       this.warningTimer -= delta;
       if (this.warningTimer <= 0) this.warningText.setVisible(false);
