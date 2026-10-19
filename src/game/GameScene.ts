@@ -20,6 +20,10 @@ export class GameScene extends Phaser.Scene {
   private projectiles: Projectile[] = [];
   private spawnTimer = 0;
 
+  private pauseKeys!: Phaser.Input.Keyboard.Key[];
+  private pauseText!: Phaser.GameObjects.Text;
+  private paused = false;
+
   constructor() {
     super('GameScene');
   }
@@ -28,6 +32,7 @@ export class GameScene extends Phaser.Scene {
     const { width, height } = this.scale;
     this.score = 0;
     this.gameOver = false;
+    this.paused = false;
     this.projectiles = [];
 
     // Текст счёта
@@ -54,10 +59,34 @@ export class GameScene extends Phaser.Scene {
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
     }) as Record<'left' | 'right', Phaser.Input.Keyboard.Key>;
+    this.pauseKeys = [
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC),
+    ];
+
+    this.pauseText = this.add
+      .text(width / 2, height / 2 - 90, 'ПАУЗА\nP / ESC — продолжить', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '28px',
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setVisible(false);
+    
   }
 
   update(_time: number, delta: number): void {
+    //if (this.gameOver) return;
+
     if (this.gameOver) return;
+
+    // Переключение паузы
+    if (this.pauseKeys.some((k) => Phaser.Input.Keyboard.JustDown(k))) {
+      this.paused = !this.paused;
+      this.pauseText.setVisible(this.paused);
+    }
+    if (this.paused) return;
 
     const seconds = delta / 1000;
 
@@ -136,7 +165,7 @@ export class GameScene extends Phaser.Scene {
     this.gameOver = true;
     this.playerBox.setFillStyle(0x991b1b);
 
-    this.add.text(this.scale.width / 2, this.scale.height / 2 + 90, 'ЩИТ ПРОБИТ!\nПРОБЕЛ — рестарт', {
+    this.add.text(this.scale.width / 2, this.scale.height / 2 + 90, 'ЩИТ ПРОБИТ!\nПРОБЕЛ — рестарт\nEsc/p — пауза', {
       fontFamily: 'system-ui, sans-serif',
       fontSize: '22px',
       color: '#ffffff',
