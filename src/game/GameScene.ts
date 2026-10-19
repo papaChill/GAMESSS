@@ -4,7 +4,11 @@ interface Projectile {
   rect: Phaser.GameObjects.Rectangle;
   speed: number;
 }
-
+interface Projectile {
+    rect: Phaser.GameObjects.Rectangle;
+    vx: number;
+    vy: number;
+  }
 export class GameScene extends Phaser.Scene {
   // Контейнер объединяет квадрат и его щит в одно целое для вращения
   private playerContainer!: Phaser.GameObjects.Container;
@@ -23,10 +27,16 @@ export class GameScene extends Phaser.Scene {
   private pauseKeys!: Phaser.Input.Keyboard.Key[];
   private pauseText!: Phaser.GameObjects.Text;
   private paused = false;
+  private timerText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('GameScene');
   }
+  
+  private elapsed = 0;       // время игры в мс (без пауз)
+  private phase = 1;
+  private warningTimer = 0;  // пока > 0 — показываем предупреждение и не спавним пули
+  private warningText!: Phaser.GameObjects.Text;
 
   create(): void {
     const { width, height } = this.scale;
@@ -34,6 +44,10 @@ export class GameScene extends Phaser.Scene {
     this.gameOver = false;
     this.paused = false;
     this.projectiles = [];
+    this.elapsed = 0;
+    this.phase = 1;
+    this.warningTimer = 0;
+    this.spawnTimer = 0;
 
     // Текст счёта
     this.scoreText = this.add.text(24, 24, 'Score: 0', {
@@ -41,6 +55,20 @@ export class GameScene extends Phaser.Scene {
       fontSize: '24px',
       color: '#ffffff',
     });
+    this.timerText = this.add.text(24, 56, 'До фазы 2: 15', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '20px',
+      color: '#facc15',
+    });
+    this.warningText = this.add
+    .text(width / 2, height / 2 - 150, '⚠ ФАЗА 2 ⚠\nСнаряды сверху и снизу!', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '32px',
+      color: '#facc15',
+      align: 'center',
+    })
+    .setOrigin(0.5)
+    .setVisible(false);
 
     // 1. Создаем игрока: базовый квадрат (размер 50х50)
     this.playerBox = this.add.rectangle(0, 0, 50, 50, 0x38bdf8);
@@ -87,7 +115,27 @@ export class GameScene extends Phaser.Scene {
       this.pauseText.setVisible(this.paused);
     }
     if (this.paused) return;
+    this.elapsed += delta;
 
+    // Обратный отсчёт до фазы 2 (посекундно)
+    if (this.phase === 1) {
+      const left = Math.max(0, Math.ceil((15000 - this.elapsed) / 1000));
+      const label = `До фазы 2: ${left}`;
+      if (this.timerText.text !== label) this.timerText.setText(label);
+    }
+
+    if (this.phase === 1 && this.elapsed >= 15000) {
+      this.phase = 2;
+      this.warningTimer = 1500;
+      this.warningText.setVisible(true);
+      this.timerText.setText('ФАЗА 2').setColor('#ef4444');
+      this.cameras.main.shake(400, 0.006); // длительность мс, сила
+    }
+
+    if (this.warningTimer > 0) {
+      this.warningTimer -= delta;
+      if (this.warningTimer <= 0) this.warningText.setVisible(false);
+    }
     const seconds = delta / 1000;
 
     // Вращение контейнера (квадрат + щит поворачиваются вместе)
@@ -100,17 +148,21 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Спавн пуль
-    this.spawnTimer += delta;
-    if (this.spawnTimer > 800) {
-      this.spawnProjectile();
-      this.spawnTimer = 0;
+    if (this.warningTimer <= 0) {
+      this.spawnTimer += delta;
+      const interval = this.phase === 2 ? 650 : 800;
+      if (this.spawnTimer > interval) {
+        this.spawnProjectile();
+        this.spawnTimer = 0;
+      }
     }
 
     // Обработка пуль
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
-      p.rect.x += p.speed * seconds;
-
+      //p.rect.x += p.speed * seconds;
+      p.rect.x += p.vx * seconds;
+      p.rect.y += p.vy * seconds;
       // Дистанция от пули до центра игрока
       const dist = Phaser.Math.Distance.Between(
         p.rect.x, p.rect.y,
@@ -146,19 +198,25 @@ export class GameScene extends Phaser.Scene {
 
   private spawnProjectile(): void {
     const { width, height } = this.scale;
-    const centerY = height / 2;
+    const cx = width / 2;
+    const cy = height / 2;
 
-    const fromLeft = Math.random() > 0.5;
-    const startX = fromLeft ? -20 : width + 20;
-    
-    // Летят ровно в центр по высоте
-    const startY = centerY;
+    const mult = this.phase === 2 ? 1.2 : 1;
+    const speed = (200 + Math.min(this.score * 8, 250)) * mult;
 
-    const baseSpeed = 250 + Math.min(this.score * 12, 350);
-    const speed = fromLeft ? baseSpeed : -baseSpeed;
+    // Фаза 1: только слева/справа. Фаза 2: ещё сверху/снизу
+    const side = Phaser.Math.Between(0, this.phase === 2 ? 3 : 1);
 
-    const rect = this.add.rectangle(startX, startY, 16, 16, 0xef4444);
-    this.projectiles.push({ rect, speed });
+    let x = 0, y = 0, vx = 0, vy = 0;
+    switch (side) {
+      case 0: x = -20;         y = cy;          vx = speed;  break; // слева
+      case 1: x = width + 20;  y = cy;          vx = -speed; break; // справа
+      case 2: x = cx;          y = -20;         vy = speed;  break; // сверху
+      default: x = cx;         y = height + 20; vy = -speed; break; // снизу
+    }
+
+    const rect = this.add.rectangle(x, y, 16, 16, 0xef4444);
+    this.projectiles.push({ rect, vx, vy });
   }
 
   private endGame(): void {
