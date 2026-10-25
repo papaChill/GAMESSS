@@ -98,18 +98,35 @@ npm run preview
 ├── .github/workflows/deploy.yml   # автоматическая публикация
 ├── src/
 │   ├── game/
-│   │   ├── config.ts              # конфигурация Phaser
-│   │   └── GameScene.ts           # основная стартовая сцена
+│   │   ├── config.ts              # конфигурация Phaser и игровые параметры
+│   │   ├── GameScene.ts           # координация игровых систем
+│   │   ├── GameState.ts           # данные состояния игры
+│   │   ├── GameStateMachine.ts    # автомат игровых состояний
+│   │   ├── GameHud.ts             # интерфейс игры
+│   │   ├── Player.ts              # игрок и щит
+│   │   └── ProjectileSystem.ts    # снаряды и столкновения
 │   ├── main.ts                    # точка входа
 │   └── style.css                  # страница вокруг canvas
 ├── AGENTS.md                      # правила для AI-кодинга
 ├── CHANGELOG.md                   # короткий журнал своей работы
+├── docs/
+│   ├── project-graph.md            # граф зависимостей и контекст для AI
+│   └── architecture.svg            # иллюстрация архитектуры и автомата
 ├── TROUBLESHOOTING.md             # если что-то не запускается
 ├── index.html
 ├── package.json
 ├── tsconfig.json
 └── vite.config.ts
 ```
+
+### Архитектура в виде схемы
+
+![Схема архитектуры и состояний игры](./docs/architecture.svg)
+
+Для быстрого понимания проекта человеком или AI-агентом смотри
+[`docs/project-graph.md`](./docs/project-graph.md): там описаны импорты,
+назначение файлов, порядок обновления кадра, состояния, управление и команды.
+Схему также можно открыть отдельно: [`docs/architecture.svg`](./docs/architecture.svg).
 
 ## 7. AI разрешён
 
