@@ -103,14 +103,14 @@ export class GameScene extends Phaser.Scene {
     this.gameState.phaseIndex = nextPhaseIndex;
     this.gameState.warningTimerMs = WARNING_MS;
     this.stateMachine.beginWarning();
-    this.hud.showPhaseWarning();
-    this.cameras.main.shake(SHAKE_MS, SHAKE_POWER);
+    this.hud.showPhaseWarning();    
   }
 
   private endGame(): void {
     this.stateMachine.endGame();
     this.player.markHit();
     this.hud.showGameOver(this.scale.width, this.scale.height);
+    this.cameras.main.shake(SHAKE_MS, SHAKE_POWER);
 
     this.input.keyboard?.once('keydown-SPACE', () => {
       this.scene.restart();
